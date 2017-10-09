@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
 # Author: Jon Schipp
+# tiny modifications by Tyler Francis
+# mod version 0.1
 
 ########
 # Examples:
@@ -24,8 +26,10 @@ Check system load for Linux, FreeBSD, OSX, and AIX.
 
 	-a		Autodetect OS and CPUs
 	-c <int> 	Critical threshold
+	-d <address>	SSH address
 	-o <os>		OS type, "linux/osx/freebsd/aix"
 	-p <int>	Specify number of CPUs
+	-u <username>	SSH username
 	-w <int>	Warning threshold
 
 Usage:$0 -a
@@ -40,35 +44,100 @@ if [ $ARGC -lt $1 ]; then
 fi
 }
 
+
+
+
+autocheck=true
+sshCommand="ssh $sshUsername@$sshAddress -o ConnectTimeout=10 -o BatchMode=yes"
+
+CRIT=0
+WARN=0
+THRESHOLD=0
+AUTO_DETECT=0
+CORES=0
+
+argcheck 1
+
+
+while getopts "hd:u:ac:o:p:w:" OPTION
+do
+     case $OPTION in
+         h)
+             usage
+	     exit 0
+             ;;
+	 d)
+	     sshAddress="$OPTARG"
+	     ;;
+	 u)
+	     sshUsername="$OPTARG"
+	     ;;
+	 a)
+	     AUTO_DETECT=1
+	     ## Thanks to alvits for the following line, executing a local function on a remote host
+	     ## https://stackoverflow.com/questions/22107610/shell-script-run-function-from-script-over-ssh
+	     $sshCommand "$(typeset -f); auto_os_detect"
+	     $sshCommand "$(typeset -f); determine_cpus"
+	     ;;
+	 c)
+	     CRIT="$OPTARG"
+	     THRESHOLD=1
+             ;;
+	 o)
+	     echo "Need to implement \`\`-o'' yet"
+	     exit 1
+	     ;;
+	 p)
+	     CORES="$OPTARG"
+	     autocheck=false
+	     ;;
+	 w)
+	     WARN="$OPTARG"
+	     THRESHOLD=1
+	     ;;
+         \?)
+             exit 1
+             ;;
+     esac
+done
+
+
+
+
+
+
+
+if $autocheck ; then
 determine_cpus() {
 
 if [[ $OS == linux ]]; then
-	CORES=$(nproc)
+	CORES=$($sshCommand "nproc")
 fi
 
 if [[ $OS == freebsd ]]; then
-	CORES=$(sysctl -n hw.ncpu)
+	CORES=$($sshCommand "sysctl -n hw.ncpu")
 fi
 
 if [[ $OS == osx ]]; then
-	CORES=$(sysctl -n hw.ncpu)
+	CORES=$($sshCommand "sysctl -n hw.ncpu")
 fi
 
 if [[ $OS == aix ]]; then
-	CORES=$(lparstat -i | awk -F : '/Active Physical CPUs/ { print $2 }')
+	CORES=$($sshCommand "lparstat -i | awk -F : '/Active Physical CPUs/ { print $2 }'")
 fi
 }
+fi
 
 determine_command () {
 
 if [[ "$OS" == osx ]]; then
-	UPTIME=$(uptime | awk -F : '{ print $4 }')
+	UPTIME=$($sshCommand "uptime" | awk -F : '{ print $4 }')
 elif [[ "$OS" == linux ]]; then
-	UPTIME=$(uptime |sed 's/.*: //' | sed 's/,//g')
+	UPTIME=$($sshCommand "uptime" | sed 's/.*: //' | sed 's/,//g')
 elif [[ "$OS" == freebsd ]]; then
-	UPTIME=$(uptime | awk -F : '{ print $4 }' | sed 's/,//g')
+	UPTIME=$($sshCommand "uptime" | awk -F : '{ print $4 }' | sed 's/,//g')
 elif [[ "$OS" == aix ]]; then
-	UPTIME=$(uptime | awk -F : '{ print $4 }' | sed 's/,//g')
+	UPTIME=$($sshCommand "uptime" | awk -F : '{ print $4 }' | sed 's/,//g')
 else
 	echo "OS not supported"
 	exit $UNKNOWN
@@ -93,12 +162,22 @@ UNAME=$(uname)
 
 }
 
+
+
+
+
+
+
+
+
+
+
 ARGC=$#
-CRIT=0
-WARN=0
-THRESHOLD=0
+#CRIT=0
+#WARN=0
+#THRESHOLD=0
 LOAD=0
-AUTO_DETECT=0
+#AUTO_DETECT=0
 CORES=0
 OS=null
 CRIT_STATUS=0
@@ -107,40 +186,9 @@ OK_STATUS=0
 
 argcheck 1
 
-while getopts "hac:o:p:w:" OPTION
-do
-     case $OPTION in
-         h)
-             usage
-	     exit 0
-             ;;
-	 a)
-	     AUTO_DETECT=1
-	     auto_os_detect
-	     determine_cpus
-	     ;;
-	 c)
-	     CRIT="$OPTARG"
-	     THRESHOLD=1
-             ;;
-	 o)
-	     echo "Need to implement \`\`-o'' yet"
-	     exit 1
-	     ;;
-	 p)
-	     CORES="$OPTARG"
-	     ;;
-	 w)
-	     WARN="$OPTARG"
-	     THRESHOLD=1
-	     ;;
-         \?)
-             exit 1
-             ;;
-     esac
-done
 
-determine_command
+
+$sshCommand "$(typeset -f); determine_command"
 
 if [ $THRESHOLD -eq 0 ]; then
 
